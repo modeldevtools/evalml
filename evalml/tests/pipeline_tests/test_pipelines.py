@@ -26,6 +26,7 @@ from evalml.pipelines import (
 from evalml.pipelines.components import (
     DateTimeFeaturizer,
     DropNullColumns,
+    ElasticNetClassifier,
     Estimator,
     Imputer,
     LinearRegressor,
@@ -2243,3 +2244,43 @@ def test_generate_code_pipeline_custom():
                     '\npipeline = MockAllCustom(parameters)'
     pipeline = generate_pipeline_code(mockAllCustom)
     assert pipeline == expected_code
+
+
+def test_linear_pipeline_iteration(logistic_regression_binary_pipeline_class):
+    expected_order = [Imputer(), OneHotEncoder(), StandardScaler(), LogisticRegressionClassifier()]
+
+    pipeline = logistic_regression_binary_pipeline_class({})
+    order = [c for c in pipeline]
+    order_again = [c for c in pipeline]
+
+    assert order == expected_order
+    assert order_again == expected_order
+
+    expected_order_params = [Imputer(numeric_impute_strategy='median'), OneHotEncoder(top_n=2), StandardScaler(), LogisticRegressionClassifier()]
+
+    pipeline = logistic_regression_binary_pipeline_class({'One Hot Encoder': {'top_n': 2}, 'Imputer': {'numeric_impute_strategy': 'median'}})
+    order_params = [c for c in pipeline]
+    order_again_params = [c for c in pipeline]
+
+    assert order_params == expected_order_params
+    assert order_again_params == expected_order_params
+
+
+def test_nonlinear_pipeline_iteration(nonlinear_binary_pipeline_class):
+    expected_order = [Imputer(), OneHotEncoder(), ElasticNetClassifier(), OneHotEncoder(), RandomForestClassifier(), LogisticRegressionClassifier()]
+
+    pipeline = nonlinear_binary_pipeline_class({})
+    order = [c for c in pipeline]
+    order_again = [c for c in pipeline]
+
+    assert order == expected_order
+    assert order_again == expected_order
+
+    expected_order_params = [Imputer(), OneHotEncoder(top_n=2), ElasticNetClassifier(), OneHotEncoder(top_n=5), RandomForestClassifier(), LogisticRegressionClassifier()]
+
+    pipeline = nonlinear_binary_pipeline_class({'OneHot_ElasticNet': {'top_n': 2}, 'OneHot_RandomForest': {'top_n': 5}})
+    order_params = [c for c in pipeline]
+    order_again_params = [c for c in pipeline]
+
+    assert order_params == expected_order_params
+    assert order_again_params == expected_order_params
