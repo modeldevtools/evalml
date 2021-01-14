@@ -7,6 +7,13 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import BaseCrossValidator
 
+from evalml.problem_types import ProblemTypes
+from sklearn.model_selection import train_test_split
+from evalml.exceptions import PipelineScoreError
+from collections import OrderedDict
+from evalml.model_family import ModelFamily
+from evalml.pipelines import BinaryClassificationPipeline
+
 from .pipeline_search_plots import PipelineSearchPlots
 
 from evalml.automl.automl_algorithm import IterativeAlgorithm
@@ -16,6 +23,8 @@ from evalml.automl.utils import (
     get_default_primary_search_objective,
     make_data_splitter
 )
+from evalml.automl.engines import SequentialEngine
+from evalml.automl.utils import get_default_primary_search_objective
 from evalml.data_checks import (
     AutoMLDataChecks,
     DataChecks,
@@ -402,7 +411,7 @@ class AutoMLSearch:
         if self._data_check_results["errors"]:
             raise ValueError("Data checks raised some warnings and/or errors. Please see `self.data_check_results` for more information or pass data_checks='disabled' to search() to disable data checking.")
         if self.allowed_pipelines is None:
-            logger.info("Generating pipelines to search over...")
+            logger.debug("Generating pipelines to search over...")
             allowed_estimators = get_estimators(self.problem_type, self.allowed_model_families)
             logger.debug(f"allowed_estimators set to {[estimator.name for estimator in allowed_estimators]}")
             self.allowed_pipelines = [make_pipeline(self.X_train, self.y_train, estimator, self.problem_type, text_columns=text_columns) for estimator in allowed_estimators]
@@ -482,6 +491,9 @@ class AutoMLSearch:
         if should_terminate:
             return
 
+        if self.search_iteration_plot:
+            self.search_iteration_plot.update()
+
         current_batch_pipelines = []
         current_batch_pipeline_scores = []
         while self._check_stopping_condition(self._start):
@@ -497,7 +509,6 @@ class AutoMLSearch:
             current_batch_size = len(current_batch_pipelines)
             current_batch_pipeline_scores = self._evaluate_pipelines(current_batch_pipelines, search_iteration_plot=self.search_iteration_plot, engine=engine)
 
-            # Different size indicates early stopping
             if len(current_batch_pipeline_scores) != current_batch_size:
                 break
 
@@ -553,7 +564,7 @@ class AutoMLSearch:
                 pipeline.threshold = self.objective.optimize_threshold(y_predict_proba, y_threshold_tuning, X=X_threshold_tuning)
         return pipeline
 
-    def _check_stopping_condition(self, start):
+    def _check_stopping_condition(self, start, current_pipeline_count=None):
         should_continue = True
         num_pipelines = len(self._results['pipeline_results'])
 
@@ -564,6 +575,8 @@ class AutoMLSearch:
         # check max_time and max_iterations
         elapsed = time.time() - start
         if self.max_time and elapsed >= self.max_time:
+            return False
+        if current_pipeline_count and self.max_iterations and current_pipeline_count >= self.max_iterations:
             return False
         elif self.max_iterations and num_pipelines >= self.max_iterations:
             return False
@@ -688,7 +701,6 @@ class AutoMLSearch:
 
     def _evaluate_pipelines(self, current_pipeline_batch, baseline=False, search_iteration_plot=None, engine=None):
         current_batch_pipeline_scores = []
-
         if engine is None:
             engine = SequentialEngine()
         engine.load_data(self.X_train, self.y_train)
@@ -803,7 +815,6 @@ class AutoMLSearch:
         for parameter in pipeline_rows['parameters']:
             if pipeline.parameters == parameter:
                 return
-
         if engine is None:
             engine = SequentialEngine()
         self._evaluate_pipelines(pipeline, engine=engine)
